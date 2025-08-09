@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from transformers import AutoModel
 
 
@@ -24,8 +25,8 @@ class UnifiedHead(nn.Module):
         self.num_classes = num_classes
 
         self.layer_1 = nn.Sequential(
-            nn.Linear(hidden_size, 256),
-            RMSNorm(256),
+            nn.Linear(hidden_size, 512),
+            RMSNorm(512),
             nn.SiLU(),
         )
         self.layer_2 = nn.Sequential(
@@ -33,15 +34,20 @@ class UnifiedHead(nn.Module):
             RMSNorm(64),
             nn.SiLU(),
         )
-        self.layer_3 = nn.Sequential(
-            nn.Linear(64, 16),
+        self.cls_output = nn.Sequential(
+            nn.Linear(32, 16),
             RMSNorm(16),
             nn.SiLU(),
+            nn.Linear(16, self.num_classes),
         )
-
-        self.cls_output = nn.Linear(16, num_classes)
-        self.reg_output = nn.Linear(16, num_classes)
-        self.sigmoid = nn.Sigmoid()
+        self.reg_output = nn.Sequential(
+            nn.Linear(32, 16),
+            RMSNorm(16),
+            nn.SiLU(),
+            nn.Linear(16, self.num_classes),
+            RMSNorm(self.num_classes),
+            nn.Sigmoid(),
+        )
 
         self._init_weights()
 
@@ -69,10 +75,11 @@ class UnifiedHead(nn.Module):
     def forward(self, hidden_states):
         # hidden_states: [batch_size, hidden_size]
         x = self.layer_1(hidden_states)
+        x = F.silu(x[:, :256]) * x[:, 256:]
         x = self.layer_2(x)
-        x = self.layer_3(x)
-        cls_logits = self.cls_output(x)  # [batch_size, num_classes]
-        reg_logits = self.sigmoid(self.reg_output(x))
+        cls_logits = self.cls_output(x[:, : self.num_classes])
+        reg_logits = self.reg_output(x[:, self.num_classes :])
+
         return reg_logits, cls_logits
 
 

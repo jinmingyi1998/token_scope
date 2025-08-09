@@ -3,6 +3,7 @@ import torch
 from sklearn.metrics import f1_score
 from torch.optim import Adam
 
+from olp.dataset.data_module import LengthDataset
 from olp.train.loss import CombinedLoss
 from olp.train.lr_scheduler import EpochCosineAnnealingLR
 from olp.train.model import OutputLengthPredictor
@@ -20,9 +21,7 @@ class LengthPredictionModel(pl.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
-
         self.model = OutputLengthPredictor(model_name=model_name, num_classes=7)
-
         self.loss = None
 
         # Hyperparameters
@@ -32,26 +31,16 @@ class LengthPredictionModel(pl.LightningModule):
         self.cls_weight = cls_weight
         self.max_length = max_length
 
-        self.cls_label_map = {
-            0: {"start": 0, "end": 128, "range": 128},
-            1: {"start": 128, "end": 512, "range": 384},
-            2: {"start": 512, "end": 1024, "range": 512},
-            3: {"start": 1024, "end": 4096, "range": 3072},
-            4: {"start": 4096, "end": 8192, "range": 4096},
-            5: {"start": 8192, "end": 16384, "range": 8192},
-            6: {"start": 16384, "end": 163840, "range": 147456},
-        }
-
-        max_class_id = max(self.cls_label_map.keys())
+        max_class_id = LengthDataset.cls_boundaries[-1]["cls_id"]
 
         self.start_mapping = torch.zeros(max_class_id + 1)
         self.end_mapping = torch.zeros(max_class_id + 1)
         self.range_mapping = torch.zeros(max_class_id + 1)
 
-        for cls_id, info in self.cls_label_map.items():
-            self.start_mapping[cls_id] = info["start"]
-            self.end_mapping[cls_id] = info["end"]
-            self.range_mapping[cls_id] = info["range"]
+        for boundary in LengthDataset.cls_boundaries:
+            self.start_mapping[boundary["cls_id"]] = boundary["start"]
+            self.end_mapping[boundary["cls_id"]] = boundary["end"]
+            self.range_mapping[boundary["cls_id"]] = boundary["range"]
 
     def setup(self, stage: str = None):
         """Setup model components"""
